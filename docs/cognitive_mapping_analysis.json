@@ -1,0 +1,332 @@
+{
+  "analysis_metadata": {
+    "date": "2026-01-30",
+    "repository": "itak04/CogNav",
+    "reference_paper": "Zeng et al. 2017 - Cognitive Mapping Based on Conjunctive Representation of Grid Cells and Head Direction Cells",
+    "target_system": "InternVLN (DualVLN)"
+  },
+
+  "occupancy_map_analysis": {
+    "usage_locations": [
+      {
+        "file": "internnav/evaluator/utils/common.py",
+        "line": "43-60",
+        "function": "freemap_to_accupancy_map()",
+        "note": "Function name has typo in original codebase (accupancy vs occupancy)",
+        "context": "evaluation/visualization",
+        "critical": false
+      },
+      {
+        "file": "internnav/evaluator/utils/path_plan.py",
+        "line": "63-104",
+        "function": "vis_nav_path()",
+        "context": "visualization only",
+        "critical": false
+      },
+      {
+        "file": "internnav/env/utils/internutopia_extension/controllers/vln_move_by_flash_with_collision_controller.py",
+        "line": "103-137",
+        "function": "get_map_info()",
+        "context": "collision detection - CRITICAL",
+        "critical": true
+      },
+      {
+        "file": "internnav/env/utils/internutopia_extension/controllers/vln_move_by_flash_with_collision_controller.py",
+        "line": "139-150",
+        "function": "check_collision()",
+        "context": "collision detection - CRITICAL",
+        "critical": true
+      }
+    ],
+    "is_model_input": false,
+    "depth_dependency": "critical-for-collision-only",
+    "summary": "Occupancy map is NOT a model input during training/inference. Used primarily for collision detection in robot controllers and path visualization. System 1 (NavDP) and System 2 (InternVLA-N1) work with RGB/depth images and latent goals, not occupancy maps."
+  },
+
+  "integration_points": {
+    "injection_points": [
+      {
+        "location": "internnav/model/basemodel/rdp/rdp_policy.py",
+        "line": "199-209",
+        "current_code": "IMU encoder initialization with imu_linear layers",
+        "proposed_modification": "Add GridCellEncoder following same pattern as IMU encoder",
+        "feasibility": "easy",
+        "reason": "RDP already has IMU encoder infrastructure - grid cells can follow identical pattern"
+      },
+      {
+        "location": "internnav/model/basemodel/navdp/navdp_policy.py",
+        "line": "159-170",
+        "current_code": "cond_embedding = torch.cat([time_embeds, goal_embed, goal_embed, goal_embed, rgbd_embed], dim=1)",
+        "proposed_modification": "Add grid_code to conditioning: cond_embedding = torch.cat([..., rgbd_embed, grid_code], dim=1)",
+        "feasibility": "medium",
+        "reason": "Requires modifying positional encoding size and decoder architecture"
+      },
+      {
+        "location": "internnav/model/basemodel/internvla_n1/internvla_n1.py",
+        "line": "349-382",
+        "current_code": "hidden_states = torch.cat([memory_tokens, traj_latents], dim=1)",
+        "proposed_modification": "Add grid_code: hidden_states = torch.cat([memory_tokens, traj_latents, grid_code], dim=1)",
+        "feasibility": "medium",
+        "reason": "Trajectory generation conditioned on VLM latents - grid code adds path integration info"
+      }
+    ],
+    "velocity_availability": true,
+    "velocity_sources": [
+      {
+        "file": "internnav/model/utils/vln_utils.py",
+        "line": "181-182",
+        "info": "S1Output dataclass has linear_velocity and angular_velocity fields"
+      },
+      {
+        "file": "internnav/env/utils/agilex_extensions/control.py",
+        "line": "6,16",
+        "info": "ROS odometry subscriber: /ranger_base_node/odom"
+      },
+      {
+        "file": "internnav/dataset/rdp_lerobot_dataset.py",
+        "line": "267-273",
+        "info": "IMU data computed from global positions with local coordinate transformation"
+      }
+    ],
+    "estimated_code_changes": {
+      "lines": "300-400",
+      "files": "5-7"
+    }
+  },
+
+  "replacement_feasibility": {
+    "replacement_scenarios": [
+      {
+        "name": "Full Replacement",
+        "description": "Remove occupancy map entirely, use grid cells for all spatial reasoning",
+        "feasibility_score": 0.3,
+        "pros": [
+          "No depth sensor dependency",
+          "Works with IMU/odometry only",
+          "Mathematically elegant path integration",
+          "Lightweight computation"
+        ],
+        "cons": [
+          "CRITICAL: No explicit obstacle information",
+          "Cannot detect dynamic obstacles",
+          "Collision avoidance severely impacted",
+          "Requires complete controller rewrite",
+          "Safety risk for real robot deployment"
+        ],
+        "recommended": false
+      },
+      {
+        "name": "Partial Replacement - Localization Only",
+        "description": "Grid cells for self-localization and progress tracking, keep occupancy for obstacles",
+        "feasibility_score": 0.75,
+        "pros": [
+          "Precise path integration for distance traveled",
+          "Robust to visual aliasing",
+          "Maintains collision safety",
+          "Incremental integration possible",
+          "Best for solving 'distance already traveled' problem"
+        ],
+        "cons": [
+          "Still requires depth for obstacles",
+          "Moderate code complexity",
+          "Need to fuse two spatial representations"
+        ],
+        "recommended": true
+      },
+      {
+        "name": "Parallel Enhancement",
+        "description": "Add grid cells alongside occupancy map without removing anything",
+        "feasibility_score": 0.85,
+        "pros": [
+          "Lowest risk approach",
+          "Can A/B test improvement",
+          "No breaking changes",
+          "Grid code as auxiliary conditioning signal",
+          "Easy rollback if issues arise"
+        ],
+        "cons": [
+          "Increased computation (minimal ~5%)",
+          "Code complexity increase",
+          "May have redundant representations"
+        ],
+        "recommended": true
+      }
+    ],
+    "recommended_approach": "Start with Parallel Enhancement, then gradually transition to Partial Replacement based on performance metrics",
+    "critical_blockers": [
+      "Grid cells cannot replace collision detection - they have no obstacle awareness",
+      "Depth sensor still needed for dynamic obstacle detection in real robot deployment",
+      "System 1's diffusion policy was trained without grid cell conditioning - may require fine-tuning",
+      "Velocity signal quality is crucial for accurate path integration"
+    ]
+  },
+
+  "implementation_plan": {
+    "implementation_options": [
+      {
+        "approach": "Zeng's Explicit Formula (CAN-based, no training)",
+        "complexity": "Medium",
+        "estimated_lines": 400,
+        "estimated_files": 4,
+        "components": [
+          "GridCellNetwork class (~150 lines)",
+          "HeadDirectionNetwork class (~100 lines)",
+          "PathIntegrator class (~100 lines)",
+          "Config additions (~50 lines)"
+        ],
+        "pros": [
+          "No training required",
+          "Mathematically interpretable",
+          "Deterministic behavior",
+          "Lightweight (512 + 1275 neural units)",
+          "Can be implemented from paper equations"
+        ],
+        "cons": [
+          "Fixed architecture",
+          "May not adapt to novel environments",
+          "Requires careful parameter tuning",
+          "No end-to-end gradient flow"
+        ]
+      },
+      {
+        "approach": "DeepMind's Learned Grid Cells (LSTM + Dropout)",
+        "complexity": "High",
+        "estimated_lines": 800,
+        "estimated_files": 6,
+        "components": [
+          "GridCellLSTM class (~200 lines)",
+          "PlaceCellDecoder class (~100 lines)",
+          "HeadDirectionDecoder class (~100 lines)",
+          "Training loop (~300 lines)",
+          "Dataset preparation (~100 lines)"
+        ],
+        "pros": [
+          "End-to-end trainable",
+          "Adaptive to environment",
+          "Can emerge optimal representations",
+          "Gradient flow through entire system"
+        ],
+        "cons": [
+          "Requires trajectory dataset for training",
+          "Black box (less interpretable)",
+          "Higher computational cost",
+          "Training stability concerns"
+        ]
+      },
+      {
+        "approach": "Hybrid: Explicit HD + Learned Grid",
+        "complexity": "Medium-High",
+        "estimated_lines": 600,
+        "estimated_files": 5,
+        "pros": [
+          "HD cells from formula (stable)",
+          "Grid cells learned (adaptive)",
+          "Best of both worlds",
+          "Partial interpretability"
+        ],
+        "cons": [
+          "Architecture complexity",
+          "Partial training requirement",
+          "More hyperparameters"
+        ]
+      }
+    ],
+    "recommended_option": "Zeng's Explicit Formula for initial integration, with option to upgrade to learned grid cells based on performance",
+    "estimated_timeline": {
+      "phase1_grid_cell_module": "3-5 days",
+      "phase2_rdp_integration": "2-3 days",
+      "phase3_testing_validation": "2-3 days",
+      "phase4_navdp_internvla_integration": "3-5 days",
+      "total": "2-3 weeks"
+    },
+    "priority_order": [
+      "1. Implement GridCellEncoder module",
+      "2. Add configuration schema to base_encoders.py",
+      "3. Integrate with RDP policy (has IMU template)",
+      "4. Add velocity preprocessing pipeline",
+      "5. Test in VLN-CE simulation",
+      "6. Extend to NavDP and InternVLA-N1",
+      "7. Evaluate on real robot with Agilex platform"
+    ]
+  },
+
+  "risk_assessment": {
+    "risks": [
+      {
+        "risk": "Grid cells drift without visual correction",
+        "likelihood": "high",
+        "impact": "medium",
+        "mitigation": "Implement periodic visual recalibration using place cell matching from RGB features"
+      },
+      {
+        "risk": "Collision accidents in real robot",
+        "likelihood": "high",
+        "impact": "critical",
+        "mitigation": "NEVER remove occupancy-based collision detection; grid cells are supplementary only"
+      },
+      {
+        "risk": "Incompatible with existing model checkpoints",
+        "likelihood": "medium",
+        "impact": "medium",
+        "mitigation": "Implement as optional module with backward compatibility; use feature flags"
+      },
+      {
+        "risk": "Training instability with learned grid cells",
+        "likelihood": "medium",
+        "impact": "low",
+        "mitigation": "Use frozen explicit formulas initially; train only projection layers"
+      },
+      {
+        "risk": "Velocity signal noise causing drift",
+        "likelihood": "medium",
+        "impact": "medium",
+        "mitigation": "Low-pass filtering; use odometry + IMU sensor fusion"
+      },
+      {
+        "risk": "Increased inference latency",
+        "likelihood": "low",
+        "impact": "low",
+        "mitigation": "Grid cell update is lightweight (~1ms); profile and optimize if needed"
+      }
+    ],
+    "dependencies": [
+      "Velocity signals available from simulation environment or ROS odometry",
+      "Configuration system extension in base_encoders.py",
+      "Optional: trajectory dataset with velocity annotations for learned approach"
+    ],
+    "fallback_options": [
+      "Feature flag to disable: model.grid_cell_encoder.use = False",
+      "Start with grid cells as auxiliary loss, not primary conditioning",
+      "A/B testing framework to compare with and without grid cells"
+    ]
+  },
+
+  "conclusions": {
+    "can_replace_occupancy_map": {
+      "for_localization": true,
+      "for_progress_tracking": true,
+      "for_collision_detection": false,
+      "for_vector_navigation": true
+    },
+    "recommended_integration_strategy": "Parallel Enhancement with gradual transition to Partial Replacement",
+    "key_benefits": [
+      "Precise path integration for 'distance already traveled' estimation",
+      "Reduced depth dependency for localization",
+      "Support for vector navigation and shortcut planning",
+      "Lightweight computation (512 grid + 1275 HD units)",
+      "Mathematical interpretability"
+    ],
+    "key_limitations": [
+      "Cannot replace collision detection",
+      "Requires velocity signals (available in current system)",
+      "May need fine-tuning for existing trained models"
+    ],
+    "actionable_next_steps": [
+      "Create GridCellEncoder module with Zeng's explicit formula",
+      "Add GridCellEncoderConfig to base_encoders.py",
+      "Integrate with RDP policy using IMU encoder pattern",
+      "Test path integration accuracy in VLN-CE simulation",
+      "Evaluate impact on navigation success rate and SPL"
+    ]
+  }
+}
