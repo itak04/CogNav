@@ -1,0 +1,178 @@
+{
+  "analysis_metadata": {
+    "date": "2026-02-05",
+    "repository": "itak04/CogNav",
+    "topic": "InternVLA Navigation Loop and Hippocampus-like Memory Mechanisms"
+  },
+
+  "360_degree_input": {
+    "answer": false,
+    "explanation": "InternVLA does NOT use 360-degree panoramic images. It uses multi-view directional camera images with specific pitch angles (e.g., 0°, 30°, 45°).",
+    "current_implementation": {
+      "primary_camera": "RGB image at pitch_1 angle (e.g., 0° horizontal)",
+      "secondary_camera": "RGB image at pitch_2 angle (e.g., 30° look-down)",
+      "history_frames": "Past N frames sampled uniformly for temporal memory"
+    },
+    "datasets_camera_configs": [
+      {"name": "R2R_125CM_0_30", "height": 125, "pitch_1": 0, "pitch_2": 30},
+      {"name": "R2R_60CM_15_15", "height": 60, "pitch_1": 15, "pitch_2": 15},
+      {"name": "RxR_125CM_0_45", "height": 125, "pitch_1": 0, "pitch_2": 45}
+    ]
+  },
+
+  "datasets_and_training": {
+    "navigation_datasets": [
+      {"name": "R2R (Room-to-Room)", "type": "VLN", "config_keys": ["r2r_125cm_0_30", "r2r_60cm_15_15"]},
+      {"name": "RxR (Multilingual R2R)", "type": "VLN", "config_keys": ["rxr_125cm_0_30", "rxr_60cm_30_30"]},
+      {"name": "ScaleVLN", "type": "Large-scale VLN", "config_keys": ["scalevln_125cm_0_30"]}
+    ],
+    "pretraining_datasets": [
+      {"name": "Cambrian 737K", "type": "Vision-Language"},
+      {"name": "MP-Doc", "type": "Document Understanding"},
+      {"name": "CLEVR-MC", "type": "Visual Reasoning"},
+      {"name": "VideoChatGPT", "type": "Video Understanding"}
+    ],
+    "training_pipeline": {
+      "model_base": "Qwen2.5-VL",
+      "system1_options": ["nextdit (diffusion)", "navdp (policy)"],
+      "attention": "Flash Attention 2",
+      "data_augmentation": ["ColorJitter", "Posterize", "Sharpness", "Autocontrast"],
+      "trainer": "HuggingFace Trainer with distributed training"
+    }
+  },
+
+  "existing_memory_mechanisms": {
+    "MemoryEncoder": {
+      "type": "Transformer Encoder",
+      "hidden_size": 384,
+      "num_heads": 6,
+      "num_layers": 3,
+      "function": "Aggregates visual features with positional encoding",
+      "file": "internnav/model/basemodel/internvla_n1/internvla_n1_arch.py",
+      "hippocampus_analog": "Sequential memory encoding (partial)"
+    },
+    "QFormer": {
+      "type": "Transformer Decoder",
+      "num_queries": 32,
+      "hidden_size": 768,
+      "num_layers": 3,
+      "function": "Query-based retrieval from visual features",
+      "file": "internnav/model/basemodel/internvla_n1/internvla_n1_arch.py",
+      "hippocampus_analog": "Memory retrieval mechanism (partial)"
+    },
+    "HistoryFrameSampling": {
+      "type": "Temporal Memory",
+      "num_history": "configurable (e.g., 4-8 frames)",
+      "sampling": "Uniform linear spacing",
+      "file": "internnav/model/basemodel/internvla_n1/internvla_n1_policy.py",
+      "hippocampus_analog": "Episodic memory (partial)"
+    }
+  },
+
+  "novel_repeat_mechanisms": {
+    "novelty_detection": {
+      "status": "NOT_IMPLEMENTED",
+      "hippocampus_function": "CA1 high-frequency activation for novel stimuli",
+      "current_gap": "No explicit novelty detection module",
+      "proposed_solution": "NoveltyDetector class comparing current observation to memory bank"
+    },
+    "inhibition_of_return": {
+      "status": "PARTIAL",
+      "hippocampus_function": "Suppress attention to previously visited locations",
+      "current_implementation": "Implicit in VLM self-attention",
+      "proposed_solution": "InhibitionOfReturn class with spatial inhibition map"
+    },
+    "spatial_memory": {
+      "status": "NOT_IMPLEMENTED",
+      "hippocampus_function": "Grid cells for path integration",
+      "current_gap": "Only temporal memory, no spatial representation",
+      "proposed_solution": "GridCellEncoder from cognitive_mapping_analysis.md"
+    }
+  },
+
+  "grid_map_as_attention": {
+    "current_status": "NOT_USED_AS_MODEL_INPUT",
+    "current_usage": ["Collision detection in controller", "Path planning visualization"],
+    "feasibility": {
+      "technical": "HIGH",
+      "benefit": "Spatial context for visual features",
+      "implementation": "GridMapAttention module with cross-attention"
+    },
+    "proposed_architecture": {
+      "grid_encoder": "Conv2D layers to encode occupancy grid",
+      "cross_attention": "Visual features query grid map",
+      "output": "Spatially-informed visual features"
+    }
+  },
+
+  "saccade_sequence_planning": {
+    "current_capabilities": {
+      "trajectory_generation": {
+        "status": "IMPLEMENTED",
+        "method": "NextDiT diffusion model",
+        "horizon": "32 steps",
+        "output": "Continuous 3D trajectory (dx, dy, dyaw)"
+      },
+      "goal_conditioning": {
+        "status": "IMPLEMENTED",
+        "method": "VLM latent queries condition trajectory generation"
+      }
+    },
+    "gaps": {
+      "explicit_spatial_reasoning": {
+        "hippocampus_function": "Kitchen is right of living room",
+        "current_status": "Implicit in VLM",
+        "needed": "Explicit spatial relation module"
+      },
+      "subgoal_decomposition": {
+        "hippocampus_function": "Living room -> Kitchen -> Fridge",
+        "current_status": "Implicit in VLM",
+        "proposed_solution": "SubgoalPlanner with hierarchical planning"
+      }
+    }
+  },
+
+  "recommendations": {
+    "priority_high": [
+      {
+        "name": "Grid Cell Encoder",
+        "effort_days": "3-5",
+        "benefit": "Precise spatial localization and path integration",
+        "reference": "docs/cognitive_mapping_analysis.md"
+      },
+      {
+        "name": "Novelty Detection",
+        "effort_days": "2-3",
+        "benefit": "Efficient exploration vs exploitation"
+      }
+    ],
+    "priority_medium": [
+      {
+        "name": "Grid Map Attention",
+        "effort_days": "2-3",
+        "benefit": "Enhanced obstacle avoidance"
+      },
+      {
+        "name": "Subgoal Planner",
+        "effort_days": "3-5",
+        "benefit": "Improved long-distance navigation"
+      }
+    ],
+    "priority_low": [
+      {
+        "name": "Inhibition of Return",
+        "effort_days": "1-2",
+        "benefit": "Reduced redundant scanning"
+      }
+    ]
+  },
+
+  "key_file_locations": {
+    "model_architecture": "internnav/model/basemodel/internvla_n1/internvla_n1_arch.py",
+    "forward_pass": "internnav/model/basemodel/internvla_n1/internvla_n1.py",
+    "navigation_policy": "internnav/model/basemodel/internvla_n1/internvla_n1_policy.py",
+    "training_loop": "internnav/trainer/internvla_n1_trainer.py",
+    "dataset": "internnav/dataset/internvla_n1_lerobot_dataset.py",
+    "cognitive_mapping_analysis": "docs/cognitive_mapping_analysis.md"
+  }
+}
